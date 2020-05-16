@@ -24,13 +24,19 @@ PHP_MINFO_FUNCTION(pshm);
 
 typedef struct _php_pshm_obj php_pshm_obj;
 
+struct shm_st {
+
+
+}
+
 struct _php_pshm_obj {
         char *name;
+        shm_st *shm;
 	zend_object   std;
 };
 
 static zend_object *pshm_object_init(zend_class_entry *class_type);
-PHPAPI int php_pshm_initialize(php_pshm_obj *pshmobj, char *name);
+PHPAPI int php_pshm_initialize(php_pshm_obj *pshmobj, char *name, shm_st *shm);
 static inline php_pshm_obj *php_pshm_obj_from_obj(zend_object *obj) {
 	return (php_pshm_obj*)((char*)(obj) - XtOffsetOf(php_pshm_obj, std));
 }

@@ -8,6 +8,8 @@
 #include "ext/standard/info.h"
 #include "php_pshm.h"
 
+#include "zend_exceptions.h"
+
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <fcntl.h>
@@ -26,18 +28,40 @@ static zend_object_handlers pshm_object_handlers;
  */
 PHP_FUNCTION(pshm_info)
 {
-	char *name = "World";
-	size_t name_len = sizeof("World") - 1;
-	zend_string *retval;
 
-	ZEND_PARSE_PARAMETERS_START(0, 1)
-		Z_PARAM_OPTIONAL
-		Z_PARAM_STRING(name, name_len)
-	ZEND_PARSE_PARAMETERS_END();
+    zend_string *name;
+    int retval, fd;
+    struct stat fd_stat;
 
-	retval = strpprintf(0, "%s", name);
+    ZEND_PARSE_PARAMETERS_START(1, 1)
+            Z_PARAM_STR(name)
+    ZEND_PARSE_PARAMETERS_END();
 
-	RETURN_STR(retval);
+    if((fd = shm_open(ZSTR_VAL(name),O_RDONLY,0666)) == -1)
+    {
+        zend_throw_exception (zend_ce_exception, strerror (errno), 0);
+    }
+
+    retval = fstat (fd, &fd_stat);
+
+    if (retval == -1)
+    {
+      zend_throw_exception (zend_ce_exception, strerror (errno), 0);
+    }
+
+    retval = close (fd);
+
+    if (retval == -1)
+    {
+      zend_throw_exception (zend_ce_exception, strerror (errno), 0);
+    }
+
+    array_init (return_value);
+    add_assoc_long (return_value, "size", fd_stat.st_size);
+    add_assoc_long (return_value, "atime", fd_stat.st_atim.tv_sec);
+    add_assoc_long (return_value, "mtime", fd_stat.st_mtim.tv_sec);
+    add_assoc_long (return_value, "ctime", fd_stat.st_ctim.tv_sec);
+
 }
 /* }}}*/
 
@@ -46,12 +70,11 @@ PHP_FUNCTION(pshm_info)
 PHP_METHOD(PSHM,__construct)
 {
         char *name;
-        size_t name_len;
 	ZEND_PARSE_PARAMETERS_START(1, 1)
-		Z_PARAM_STRING(name, name_len)
+		Z_PARAM_STR(name)
 	ZEND_PARSE_PARAMETERS_END();
 
-	php_pshm_initialize(Z_PHPPSHM_P(ZEND_THIS), name);
+	php_pshm_initialize(Z_PHPPSHM_P(ZEND_THIS), ZSTR_VAL(name));
 }
 /* }}} */
 
@@ -59,10 +82,23 @@ PHP_METHOD(PSHM,__construct)
  */
 PHP_METHOD(PSHM,unlink)
 {
+    php_pshm_obj     *pshmobj;
+    int retval;
 
-	ZEND_PARSE_PARAMETERS_NONE();
+    ZEND_PARSE_PARAMETERS_NONE();
 
-	RETURN_TRUE;
+    pshmobj = Z_PHPPSHM_P(getThis());
+
+    retval = shm_unlink(pshmobj->name);
+    if(retval == -1)
+    {
+
+        zend_throw_exception (zend_ce_exception, strerror (errno), 0);
+
+    }
+
+    RETURN_TRUE;
+
 }
 /* }}}*/
 
@@ -182,9 +218,10 @@ static zend_object *pshm_object_init(zend_class_entry *ce) /* {{{ */
 
 /* {{{ php_pshm_initialize(*pshmobj, *name)
  */
-PHPAPI int php_pshm_initialize(php_pshm_obj *pshmobj, /*const*/ char *name)
+PHPAPI int php_pshm_initialize(php_pshm_obj *pshmobj, /*const*/ char *name, shm_st *shm)
 {
         pshmobj->name = name;
+        pshmobj->shm = shm;
 
 	return 1;
 }
