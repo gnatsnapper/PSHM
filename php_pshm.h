@@ -4,7 +4,7 @@
 # define PHP_PSHM_H
 
 extern zend_module_entry pshm_module_entry;
-# define phpext_pshm_ptr &pshm_module_entry
+# define phpext_pvoid &pshm_module_entry
 
 # define PHP_PSHM_VERSION "0.1.0"
 
@@ -24,19 +24,19 @@ PHP_MINFO_FUNCTION(pshm);
 
 typedef struct _php_pshm_obj php_pshm_obj;
 
-struct shm_st {
-
-
-}
+//struct shm_st {
+//
+//
+//} shm;
 
 struct _php_pshm_obj {
         char *name;
-        shm_st *shm;
+        void *shm;
 	zend_object   std;
 };
 
 static zend_object *pshm_object_init(zend_class_entry *class_type);
-PHPAPI int php_pshm_initialize(php_pshm_obj *pshmobj, char *name, shm_st *shm);
+PHPAPI int php_pshm_initialize(php_pshm_obj *pshmobj, char *name, void *shm);
 static inline php_pshm_obj *php_pshm_obj_from_obj(zend_object *obj) {
 	return (php_pshm_obj*)((char*)(obj) - XtOffsetOf(php_pshm_obj, std));
 }

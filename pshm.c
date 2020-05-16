@@ -69,16 +69,82 @@ PHP_FUNCTION(pshm_info)
  */
 PHP_METHOD(PSHM,__construct)
 {
-        char *name;
+        zend_string *name;
+        void *shm;
+        int shm_fd;
 	ZEND_PARSE_PARAMETERS_START(1, 1)
 		Z_PARAM_STR(name)
 	ZEND_PARSE_PARAMETERS_END();
 
-	php_pshm_initialize(Z_PHPPSHM_P(ZEND_THIS), ZSTR_VAL(name));
+        if((shm_fd = shm_open(ZSTR_VAL(name),O_CREAT | O_RDWR, 0666))  == -1)
+        {
+            zend_throw_exception (zend_ce_exception, strerror (errno), 0);
+        }
+
+        if((shm = mmap(NULL, (size_t)1024, PROT_READ | PROT_READ, MAP_SHARED,
+                  shm_fd, (off_t)0)) == MAP_FAILED)
+        {
+            zend_throw_exception (zend_ce_exception, strerror (errno), 0);
+        }
+
+        if((ftruncate(shm_fd, (off_t)1024)) == -1)
+        {
+            zend_throw_exception (zend_ce_exception, strerror (errno), 0);
+        }
+
+        if(close(shm_fd) == -1)
+        {
+            zend_throw_exception (zend_ce_exception, strerror (errno), 0);
+        }
+
+	php_pshm_initialize(Z_PHPPSHM_P(ZEND_THIS), ZSTR_VAL(name), shm);
+
 }
 /* }}} */
 
-/* {{{ bool Uring::unlink(  )
+/* {{{ array PSHM::info(  )
+ */
+PHP_METHOD(PSHM,info)
+{
+    php_pshm_obj     *pshmobj;
+    int fd;
+    struct stat fd_stat;
+    int retval;
+
+    ZEND_PARSE_PARAMETERS_NONE();
+
+    pshmobj = Z_PHPPSHM_P(getThis());
+
+    if((fd = shm_open(pshmobj->name,O_RDONLY,0666)) == -1)
+    {
+        zend_throw_exception (zend_ce_exception, strerror (errno), 0);
+    }
+
+    retval = fstat (fd, &fd_stat);
+
+    if (retval == -1)
+    {
+      zend_throw_exception (zend_ce_exception, strerror (errno), 0);
+    }
+
+    retval = close (fd);
+
+    if (retval == -1)
+    {
+      zend_throw_exception (zend_ce_exception, strerror (errno), 0);
+    }
+
+    array_init (return_value);
+    add_assoc_long (return_value, "size", fd_stat.st_size);
+    add_assoc_long (return_value, "atime", fd_stat.st_atim.tv_sec);
+    add_assoc_long (return_value, "mtime", fd_stat.st_mtim.tv_sec);
+    add_assoc_long (return_value, "ctime", fd_stat.st_ctim.tv_sec);
+
+}
+/* }}}*/
+
+
+/* {{{ bool PSHM::unlink(  )
  */
 PHP_METHOD(PSHM,unlink)
 {
@@ -88,6 +154,12 @@ PHP_METHOD(PSHM,unlink)
     ZEND_PARSE_PARAMETERS_NONE();
 
     pshmobj = Z_PHPPSHM_P(getThis());
+
+    if(munmap(pshmobj->shm, (size_t)1024) == -1)
+    {
+        zend_throw_exception (zend_ce_exception, strerror (errno), 0);
+    }
+
 
     retval = shm_unlink(pshmobj->name);
     if(retval == -1)
@@ -134,6 +206,9 @@ ZEND_BEGIN_ARG_INFO(arginfo_pshm_class_construct, 0)
 	ZEND_ARG_INFO(0, name)
 ZEND_END_ARG_INFO()
 
+ZEND_BEGIN_ARG_INFO(arginfo_pshm_class_info, 0)
+ZEND_END_ARG_INFO()
+
 ZEND_BEGIN_ARG_INFO(arginfo_pshm_class_unlink, 0)
 ZEND_END_ARG_INFO()
 /* }}} */
@@ -151,6 +226,7 @@ static const zend_function_entry pshm_functions[] = {
 static const zend_function_entry pshm_methods[] = {
 	PHP_ME(PSHM, __construct,	arginfo_pshm_class_construct, ZEND_ACC_PUBLIC)
 	PHP_ME(PSHM, unlink,    arginfo_pshm_class_unlink, ZEND_ACC_PUBLIC)
+	PHP_ME(PSHM, info,    arginfo_pshm_class_info, ZEND_ACC_PUBLIC)
 	PHP_FE_END
 };
 /* }}} */
@@ -218,7 +294,7 @@ static zend_object *pshm_object_init(zend_class_entry *ce) /* {{{ */
 
 /* {{{ php_pshm_initialize(*pshmobj, *name)
  */
-PHPAPI int php_pshm_initialize(php_pshm_obj *pshmobj, /*const*/ char *name, shm_st *shm)
+PHPAPI int php_pshm_initialize(php_pshm_obj *pshmobj, /*const*/ char *name, void *shm)
 {
         pshmobj->name = name;
         pshmobj->shm = shm;
