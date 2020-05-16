@@ -34,7 +34,7 @@ PHP_FUNCTION(pshm_info)
     struct stat fd_stat;
 
     ZEND_PARSE_PARAMETERS_START(1, 1)
-            Z_PARAM_STR(name)
+         Z_PARAM_STR(name)
     ZEND_PARSE_PARAMETERS_END();
 
     if((fd = shm_open(ZSTR_VAL(name),O_RDONLY,0666)) == -1)
@@ -76,12 +76,29 @@ PHP_METHOD(PSHM,__construct)
 		Z_PARAM_STR(name)
 	ZEND_PARSE_PARAMETERS_END();
 
-        if((shm_fd = shm_open(ZSTR_VAL(name),O_CREAT | O_RDWR, 0666))  == -1)
+        if((shm_fd = shm_open(ZSTR_VAL(name),O_EXCL | O_CREAT | O_RDWR, 0666))  == -1)
         {
-            zend_throw_exception (zend_ce_exception, strerror (errno), 0);
-        }
+            if(errno == EEXIST)
+            {
+                if((shm_fd = shm_open(ZSTR_VAL(name), O_RDWR, 0666)) == -1)
+                {
+                    zend_throw_exception (zend_ce_exception, strerror (errno), 0);
+                }
 
-        if((shm = mmap(NULL, (size_t)1024, PROT_READ | PROT_READ, MAP_SHARED,
+                if((shm = mmap(NULL, (size_t)1024, PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd, (off_t)0)) == MAP_FAILED)
+                {
+                    zend_throw_exception (zend_ce_exception, strerror (errno), 0);
+                }
+
+            }
+            else
+            {
+                zend_throw_exception (zend_ce_exception, strerror (errno), 0);
+            }
+
+        } else {
+
+        if((shm = mmap(NULL, (size_t)1024, PROT_READ | PROT_WRITE, MAP_SHARED,
                   shm_fd, (off_t)0)) == MAP_FAILED)
         {
             zend_throw_exception (zend_ce_exception, strerror (errno), 0);
@@ -92,6 +109,8 @@ PHP_METHOD(PSHM,__construct)
             zend_throw_exception (zend_ce_exception, strerror (errno), 0);
         }
 
+        }
+
         if(close(shm_fd) == -1)
         {
             zend_throw_exception (zend_ce_exception, strerror (errno), 0);
@@ -100,6 +119,52 @@ PHP_METHOD(PSHM,__construct)
 	php_pshm_initialize(Z_PHPPSHM_P(ZEND_THIS), ZSTR_VAL(name), shm);
 
 }
+/* }}} */
+
+/* {{{ string PSHM::read(  )
+ */
+PHP_METHOD(PSHM,read)
+{
+    php_pshm_obj *pshmobj;
+    int retval;
+
+    ZEND_PARSE_PARAMETERS_NONE();
+
+    pshmobj = Z_PHPPSHM_P(getThis());
+
+    RETURN_STRING((char*)pshmobj->shm);
+
+}
+
+/* }}} */
+
+/* {{{ bool PSHM::write(  )
+ */
+PHP_METHOD(PSHM,write)
+{
+    php_pshm_obj *pshmobj;
+    int retval;
+    zend_string *message;
+
+    ZEND_PARSE_PARAMETERS_START(1, 1)
+        Z_PARAM_STR(message)
+    ZEND_PARSE_PARAMETERS_END();
+
+    pshmobj = Z_PHPPSHM_P(getThis());
+
+    //retval = sprintf(pshmobj->shm, "%s", ZSTR_VAL(message));
+
+    retval = 0;
+    memcpy(pshmobj->shm, ZSTR_VAL(message), ZSTR_LEN(message));
+    if(retval < 0)
+    {
+       zend_throw_exception (zend_ce_exception, strerror (errno), 0);
+    }
+
+    RETURN_TRUE;
+
+}
+
 /* }}} */
 
 /* {{{ array PSHM::info(  )
@@ -206,6 +271,13 @@ ZEND_BEGIN_ARG_INFO(arginfo_pshm_class_construct, 0)
 	ZEND_ARG_INFO(0, name)
 ZEND_END_ARG_INFO()
 
+ZEND_BEGIN_ARG_INFO(arginfo_pshm_class_write, 0)
+	ZEND_ARG_INFO(0, message)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO(arginfo_pshm_class_read, 0)
+ZEND_END_ARG_INFO()
+
 ZEND_BEGIN_ARG_INFO(arginfo_pshm_class_info, 0)
 ZEND_END_ARG_INFO()
 
@@ -226,7 +298,9 @@ static const zend_function_entry pshm_functions[] = {
 static const zend_function_entry pshm_methods[] = {
 	PHP_ME(PSHM, __construct,	arginfo_pshm_class_construct, ZEND_ACC_PUBLIC)
 	PHP_ME(PSHM, unlink,    arginfo_pshm_class_unlink, ZEND_ACC_PUBLIC)
-	PHP_ME(PSHM, info,    arginfo_pshm_class_info, ZEND_ACC_PUBLIC)
+	PHP_ME(PSHM, read,      arginfo_pshm_class_read, ZEND_ACC_PUBLIC)
+	PHP_ME(PSHM, write,     arginfo_pshm_class_write, ZEND_ACC_PUBLIC)
+	PHP_ME(PSHM, info,      arginfo_pshm_class_info, ZEND_ACC_PUBLIC)
 	PHP_FE_END
 };
 /* }}} */
