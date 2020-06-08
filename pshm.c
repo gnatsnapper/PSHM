@@ -6,13 +6,15 @@
 
 #include "php.h"
 #include "ext/standard/info.h"
-#include "php_pshm.h"
 
 #include "zend_exceptions.h"
 
+#include <semaphore.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <fcntl.h>
+
+#include "php_pshm.h"
 
 /* For compatibility with older PHP versions */
 #ifndef ZEND_PARSE_PARAMETERS_NONE
@@ -37,7 +39,7 @@ PHP_FUNCTION(pshm_info)
          Z_PARAM_STR(name)
     ZEND_PARSE_PARAMETERS_END();
 
-    if((fd = shm_open(ZSTR_VAL(name),O_RDONLY,0666)) == -1)
+    if((fd = shm_open(ZSTR_VAL(name),O_RDONLY,0600)) == -1)
     {
         zend_throw_exception (zend_ce_exception, strerror (errno), 0);
     }
@@ -65,58 +67,42 @@ PHP_FUNCTION(pshm_info)
 }
 /* }}}*/
 
-/* {{{ void pshm___construct( string $name )
+/* {{{ void pshm___construct( string $name [, string $flags [, int $mode [, int size ]]] )
  */
 PHP_METHOD(PSHM,__construct)
 {
         zend_string *name;
-        void *shm;
-        int shm_fd;
-	ZEND_PARSE_PARAMETERS_START(1, 1)
+        zend_long flags = -1;
+        int mflag;
+        char *shm;
+        int buffer_length = 128;
+        zend_long mode = 0666;
+        zend_long size = 1024;
+
+
+	ZEND_PARSE_PARAMETERS_START(1, 4)
 		Z_PARAM_STR(name)
+                Z_PARAM_OPTIONAL
+		Z_PARAM_LONG(flags)
+		Z_PARAM_LONG(mode)
+		Z_PARAM_LONG(size)
 	ZEND_PARSE_PARAMETERS_END();
 
-        if((shm_fd = shm_open(ZSTR_VAL(name),O_EXCL | O_CREAT | O_RDWR, 0666))  == -1)
+        if(flags == -1)
         {
-            if(errno == EEXIST)
-            {
-                if((shm_fd = shm_open(ZSTR_VAL(name), O_RDWR, 0666)) == -1)
-                {
-                    zend_throw_exception (zend_ce_exception, strerror (errno), 0);
-                }
 
-                if((shm = mmap(NULL, (size_t)1024, PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd, (off_t)0)) == MAP_FAILED)
-                {
-                    zend_throw_exception (zend_ce_exception, strerror (errno), 0);
-                }
+            shm = defaultShm(ZSTR_VAL(name));
 
-            }
-            else
-            {
-                zend_throw_exception (zend_ce_exception, strerror (errno), 0);
-            }
-
-        } else {
-
-        if((shm = mmap(NULL, (size_t)1024, PROT_READ | PROT_WRITE, MAP_SHARED,
-                  shm_fd, (off_t)0)) == MAP_FAILED)
-        {
-            zend_throw_exception (zend_ce_exception, strerror (errno), 0);
         }
-
-        if((ftruncate(shm_fd, (off_t)1024)) == -1)
+        else
         {
-            zend_throw_exception (zend_ce_exception, strerror (errno), 0);
-        }
+            shm = customShm(ZSTR_VAL(name), (int)flags, mode, (int)size);
 
         }
 
-        if(close(shm_fd) == -1)
-        {
-            zend_throw_exception (zend_ce_exception, strerror (errno), 0);
-        }
+        mflag = set_map_flags(flags);
 
-	php_pshm_initialize(Z_PHPPSHM_P(ZEND_THIS), ZSTR_VAL(name), shm);
+	php_pshm_initialize(Z_PHPPSHM_P(ZEND_THIS), ZSTR_VAL(name), shm, (int)size, mflag);
 
 }
 /* }}} */
@@ -126,19 +112,19 @@ PHP_METHOD(PSHM,__construct)
 PHP_METHOD(PSHM,read)
 {
     php_pshm_obj *pshmobj;
-    int retval;
 
     ZEND_PARSE_PARAMETERS_NONE();
 
+
     pshmobj = Z_PHPPSHM_P(getThis());
 
-    RETURN_STRING((char*)pshmobj->shm);
+    RETURN_STRING(pshmobj->shm);
 
 }
 
 /* }}} */
 
-/* {{{ bool PSHM::write(  )
+/* {{{ bool PSHM::write( string $message  )
  */
 PHP_METHOD(PSHM,write)
 {
@@ -152,14 +138,19 @@ PHP_METHOD(PSHM,write)
 
     pshmobj = Z_PHPPSHM_P(getThis());
 
-    //retval = sprintf(pshmobj->shm, "%s", ZSTR_VAL(message));
-
-    retval = 0;
-    memcpy(pshmobj->shm, ZSTR_VAL(message), ZSTR_LEN(message));
-    if(retval < 0)
+    if(pshmobj->mflag == 1)//Check if PROT_READ only
     {
-       zend_throw_exception (zend_ce_exception, strerror (errno), 0);
+        zend_throw_exception (zend_ce_exception, "Bad permissions for mapped region", 0);
+        RETURN_FALSE;
     }
+
+    if((ZSTR_LEN(message) * sizeof(char)) > (int)pshmobj->size)//Check if will fit in mapped region
+    {
+       zend_throw_exception (zend_ce_exception, "Message too large for mapped region", 0);
+       RETURN_FALSE;
+    }
+
+    strcpy(pshmobj->shm,ZSTR_VAL(message));
 
     RETURN_TRUE;
 
@@ -171,7 +162,7 @@ PHP_METHOD(PSHM,write)
  */
 PHP_METHOD(PSHM,info)
 {
-    php_pshm_obj     *pshmobj;
+    php_pshm_obj *pshmobj;
     int fd;
     struct stat fd_stat;
     int retval;
@@ -208,30 +199,23 @@ PHP_METHOD(PSHM,info)
 }
 /* }}}*/
 
-
 /* {{{ bool PSHM::unlink(  )
  */
 PHP_METHOD(PSHM,unlink)
 {
-    php_pshm_obj     *pshmobj;
+    php_pshm_obj *pshmobj;
     int retval;
 
     ZEND_PARSE_PARAMETERS_NONE();
 
     pshmobj = Z_PHPPSHM_P(getThis());
 
-    if(munmap(pshmobj->shm, (size_t)1024) == -1)
-    {
-        zend_throw_exception (zend_ce_exception, strerror (errno), 0);
-    }
-
-
     retval = shm_unlink(pshmobj->name);
+
     if(retval == -1)
     {
-
-        zend_throw_exception (zend_ce_exception, strerror (errno), 0);
-
+       if(errno == ENOENT){ RETURN_FALSE; }
+       zend_throw_exception (zend_ce_exception, strerror (errno), 0);
     }
 
     RETURN_TRUE;
@@ -269,6 +253,9 @@ ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_INFO(arginfo_pshm_class_construct, 0)
 	ZEND_ARG_INFO(0, name)
+	ZEND_ARG_INFO(0, flags)
+	ZEND_ARG_INFO(0, mode)
+	ZEND_ARG_INFO(0, buffer_length)
 ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_INFO(arginfo_pshm_class_write, 0)
@@ -296,11 +283,11 @@ static const zend_function_entry pshm_functions[] = {
 /* {{{ pshm_methods[]
  */
 static const zend_function_entry pshm_methods[] = {
-	PHP_ME(PSHM, __construct,	arginfo_pshm_class_construct, ZEND_ACC_PUBLIC)
-	PHP_ME(PSHM, unlink,    arginfo_pshm_class_unlink, ZEND_ACC_PUBLIC)
-	PHP_ME(PSHM, read,      arginfo_pshm_class_read, ZEND_ACC_PUBLIC)
-	PHP_ME(PSHM, write,     arginfo_pshm_class_write, ZEND_ACC_PUBLIC)
-	PHP_ME(PSHM, info,      arginfo_pshm_class_info, ZEND_ACC_PUBLIC)
+	PHP_ME(PSHM, __construct, arginfo_pshm_class_construct, ZEND_ACC_PUBLIC)
+	PHP_ME(PSHM, unlink,      arginfo_pshm_class_unlink, ZEND_ACC_PUBLIC)
+	PHP_ME(PSHM, read,        arginfo_pshm_class_read, ZEND_ACC_PUBLIC)
+	PHP_ME(PSHM, write,       arginfo_pshm_class_write, ZEND_ACC_PUBLIC)
+	PHP_ME(PSHM, info,        arginfo_pshm_class_info, ZEND_ACC_PUBLIC)
 	PHP_FE_END
 };
 /* }}} */
@@ -336,15 +323,22 @@ PHP_MINIT_FUNCTION(pshm)
 
         INIT_CLASS_ENTRY(ce_pshm, "PSHM", pshm_methods);
 	ce_pshm.create_object = pshm_object_init;
-	pshm_ce = zend_register_internal_class_ex(&ce_pshm, NULL);
+	//pshm_ce = zend_register_internal_class_ex(&ce_pshm, NULL);
+	pshm_ce = zend_register_internal_class(&ce_pshm);
 	memcpy(&pshm_object_handlers, &std_object_handlers, sizeof(zend_object_handlers));
-//	pshm_object_handlers_pshm.offset = XtOffsetOf(php_pshm_obj, std);
+	pshm_object_handlers.offset = XtOffsetOf(php_pshm_obj, std);
 //	pshm_object_handlers_pshm.free_obj = pshm_object_free_storage;
 //	pshm_object_handlers_pshm.clone_obj = pshm_object_clone;
 //	pshm_object_handlers_pshm.dtor_obj = pshm_object_destroy;
 //	pshm_object_handlers_pshm.compare_objects = pshm_object_compare;
 //	pshm_object_handlers_pshm.get_properties_for = pshm_object_get_properties_for;
 //	pshm_object_handlers_pshm.get_gc = pshm_object_get_gc;
+
+        REGISTER_LONG_CONSTANT("PSHM_CREAT", O_CREAT, CONST_CS | CONST_PERSISTENT);
+        REGISTER_LONG_CONSTANT("PSHM_RDWR", O_RDWR, CONST_CS | CONST_PERSISTENT);
+        REGISTER_LONG_CONSTANT("PSHM_RDONLY", O_RDONLY, CONST_CS | CONST_PERSISTENT);
+        REGISTER_LONG_CONSTANT("PSHM_EXCL", O_EXCL, CONST_CS | CONST_PERSISTENT);
+        REGISTER_LONG_CONSTANT("PSHM_TRUNC", O_TRUNC, CONST_CS | CONST_PERSISTENT);
 
 	return SUCCESS;
 
@@ -368,12 +362,145 @@ static zend_object *pshm_object_init(zend_class_entry *ce) /* {{{ */
 
 /* {{{ php_pshm_initialize(*pshmobj, *name)
  */
-PHPAPI int php_pshm_initialize(php_pshm_obj *pshmobj, /*const*/ char *name, void *shm)
+
+PHPAPI int php_pshm_initialize(php_pshm_obj *pshmobj, /*const*/ char *name, char *shm, int size, int mflag)
 {
         pshmobj->name = name;
         pshmobj->shm = shm;
+        pshmobj->size = size;
+        pshmobj->mflag = mflag;
 
 	return 1;
 }
 /* }}} */
 
+/* {{{ set_map_flags(int oflag)
+ */
+
+int set_map_flags(int oflag)
+{
+
+    switch(oflag)
+    {
+        case O_RDONLY: return PROT_READ;
+        case O_RDONLY|O_CREAT: return PROT_READ;
+        case O_RDONLY|O_CREAT|O_EXCL: return PROT_READ;
+        case O_RDONLY|O_CREAT|O_EXCL|O_TRUNC: return PROT_READ;
+        default: return PROT_READ|PROT_WRITE;
+    }
+
+}
+
+/* }}} */
+
+/* {{{ defaultShm(const char *name, int *shm)
+ */
+
+void * defaultShm(const char *name)
+{
+
+    int shm_fd;
+    void * shm;
+    struct stat fd_stat;
+    int retval;
+
+    if((shm_fd = shm_open(name, O_EXCL | O_CREAT | O_RDWR, 0666))  == -1) //cannot create new shm
+    {
+        if(errno == EEXIST) //because one already exists
+        {
+
+            if((shm_fd = shm_open(name, O_RDWR, 0666)) == -1)
+            {
+                zend_throw_exception (zend_ce_exception, strerror (errno), 0);
+            }
+
+            retval = fstat(shm_fd, &fd_stat);
+
+            if (retval == -1)
+            {
+              zend_throw_exception (zend_ce_exception, strerror (errno), 0);
+            }
+
+            if((shm = mmap(NULL, fd_stat.st_size, PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd, (off_t)0)) == MAP_FAILED)
+            {
+                zend_throw_exception (zend_ce_exception, strerror (errno), 0);
+            }
+
+            if(close(shm_fd) == -1)
+            {
+                zend_throw_exception (zend_ce_exception, strerror (errno), 0);
+            }
+
+        }
+        else //or for another reason
+        {
+            zend_throw_exception (zend_ce_exception, strerror (errno), 0);
+        }
+
+    }
+    else //new shm created
+    {
+
+        if((ftruncate(shm_fd, (off_t)1024)) == -1)
+        {
+            zend_throw_exception (zend_ce_exception, strerror (errno), 0);
+        }
+
+        if((shm = mmap(NULL, 1024, PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd, (off_t)0)) == MAP_FAILED)
+        {
+            zend_throw_exception (zend_ce_exception, strerror (errno), 0);
+        }
+
+        if(close(shm_fd) == -1)
+        {
+            zend_throw_exception (zend_ce_exception, strerror (errno), 0);
+        }
+
+    }
+
+    return shm;
+}
+
+/* }}} */
+
+/* {{{ customShm(const char *name, int oflag, mode_t mode, size_t size)
+ */
+void * customShm(const char *name, int oflag, mode_t mode, int size)
+{
+    int shm_fd;
+    void *shm;
+    int mflag;
+
+
+    if((shm_fd = shm_open(name, oflag, mode))  == -1)
+    {
+        zend_throw_exception (zend_ce_exception, strerror (errno), 0);
+    }
+
+    if(oflag >= O_CREAT)
+    {
+
+        if(ftruncate(shm_fd, (off_t)size) == -1)
+        {
+            zend_throw_exception (zend_ce_exception, strerror (errno), 0);
+        }
+
+    }
+
+    mflag = set_map_flags(oflag);
+
+    if((shm = mmap(NULL, (size_t)size, mflag, MAP_SHARED, shm_fd, (off_t)0)) == MAP_FAILED)
+    {
+        zend_throw_exception (zend_ce_exception, strerror (errno), 0);
+    }
+
+    if(close(shm_fd) == -1)
+    {
+        zend_throw_exception (zend_ce_exception, strerror (errno), 0);
+    }
+
+    return shm;
+
+}
+
+/* }}} */
