@@ -13,7 +13,7 @@ if (!extension_loaded('pcntl')) {
 --FILE--
 <?php
 $name = bin2hex(random_bytes(8));
-$pshm = new PSHM($name);
+$pshm = new PosixSharedMemory($name);
 
     $pid = pcntl_fork();
     if ($pid == -1) {

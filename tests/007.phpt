@@ -8,7 +8,7 @@ if (!extension_loaded('pshm')) {
 ?>
 --FILE--
 <?php
-$pshm = new PSHM(bin2hex(random_bytes(8)));
+$pshm = new PosixSharedMemory(bin2hex(random_bytes(8)));
 var_dump( $pshm->write("hello") );
 var_dump( $pshm->read() );
 try { $pshm->write(str_repeat("a",1025)); } catch (Exception $e) { var_dump($e->getMessage() ); }

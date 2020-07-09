@@ -9,7 +9,7 @@ if (!extension_loaded('pshm')) {
 --FILE--
 <?php
 $name = bin2hex(random_bytes(8));
-$pshm1 = new PSHM($name, PSHM_CREAT | PSHM_RDWR, 0600, 128);
+$pshm1 = new PosixSharedMemory($name, PSHM_CREAT | PSHM_RDWR, 0600, 128);
 var_dump( $pshm1->write(str_repeat("!",127) ) );
 try {
 

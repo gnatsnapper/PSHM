@@ -13,10 +13,10 @@ ZEND_TSRMLS_CACHE_EXTERN()
 # endif
 
 PHP_FUNCTION(pshm_info);
-PHP_METHOD(PSHM, __construct);
-PHP_METHOD(PSHM, read);
-PHP_METHOD(PSHM, write);
-PHP_METHOD(PSHM, unlink);
+PHP_METHOD(PosixSharedMemory, __construct);
+PHP_METHOD(PosixSharedMemory, read);
+PHP_METHOD(PosixSharedMemory, write);
+PHP_METHOD(PosixSharedMemory, unlink);
 
 PHP_RINIT_FUNCTION(pshm);
 PHP_RSHUTDOWN_FUNCTION(pshm);

@@ -69,7 +69,7 @@ PHP_FUNCTION(pshm_info)
 
 /* {{{ void pshm___construct( string $name [, string $flags [, int $mode [, int size ]]] )
  */
-PHP_METHOD(PSHM,__construct)
+PHP_METHOD(PosixSharedMemory,__construct)
 {
         zend_string *name;
         zend_long flags = -1;
@@ -107,9 +107,9 @@ PHP_METHOD(PSHM,__construct)
 }
 /* }}} */
 
-/* {{{ string PSHM::read(  )
+/* {{{ string PosixSharedMemory::read(  )
  */
-PHP_METHOD(PSHM,read)
+PHP_METHOD(PosixSharedMemory,read)
 {
     php_pshm_obj *pshmobj;
 
@@ -124,9 +124,9 @@ PHP_METHOD(PSHM,read)
 
 /* }}} */
 
-/* {{{ bool PSHM::write( string $message  )
+/* {{{ bool PosixSharedMemory::write( string $message  )
  */
-PHP_METHOD(PSHM,write)
+PHP_METHOD(PosixSharedMemory,write)
 {
     php_pshm_obj *pshmobj;
     int retval;
@@ -158,9 +158,9 @@ PHP_METHOD(PSHM,write)
 
 /* }}} */
 
-/* {{{ array PSHM::info(  )
+/* {{{ array PosixSharedMemory::info(  )
  */
-PHP_METHOD(PSHM,info)
+PHP_METHOD(PosixSharedMemory,info)
 {
     php_pshm_obj *pshmobj;
     int fd;
@@ -199,9 +199,9 @@ PHP_METHOD(PSHM,info)
 }
 /* }}}*/
 
-/* {{{ bool PSHM::unlink(  )
+/* {{{ bool PosixSharedMemory::unlink(  )
  */
-PHP_METHOD(PSHM,unlink)
+PHP_METHOD(PosixSharedMemory,unlink)
 {
     php_pshm_obj *pshmobj;
     int retval;
@@ -283,11 +283,11 @@ static const zend_function_entry pshm_functions[] = {
 /* {{{ pshm_methods[]
  */
 static const zend_function_entry pshm_methods[] = {
-	PHP_ME(PSHM, __construct, arginfo_pshm_class_construct, ZEND_ACC_PUBLIC)
-	PHP_ME(PSHM, unlink,      arginfo_pshm_class_unlink, ZEND_ACC_PUBLIC)
-	PHP_ME(PSHM, read,        arginfo_pshm_class_read, ZEND_ACC_PUBLIC)
-	PHP_ME(PSHM, write,       arginfo_pshm_class_write, ZEND_ACC_PUBLIC)
-	PHP_ME(PSHM, info,        arginfo_pshm_class_info, ZEND_ACC_PUBLIC)
+	PHP_ME(PosixSharedMemory, __construct, arginfo_pshm_class_construct, ZEND_ACC_PUBLIC)
+	PHP_ME(PosixSharedMemory, unlink,      arginfo_pshm_class_unlink, ZEND_ACC_PUBLIC)
+	PHP_ME(PosixSharedMemory, read,        arginfo_pshm_class_read, ZEND_ACC_PUBLIC)
+	PHP_ME(PosixSharedMemory, write,       arginfo_pshm_class_write, ZEND_ACC_PUBLIC)
+	PHP_ME(PosixSharedMemory, info,        arginfo_pshm_class_info, ZEND_ACC_PUBLIC)
 	PHP_FE_END
 };
 /* }}} */
@@ -321,7 +321,7 @@ PHP_MINIT_FUNCTION(pshm)
 {
         zend_class_entry ce_pshm;
 
-        INIT_CLASS_ENTRY(ce_pshm, "PSHM", pshm_methods);
+        INIT_CLASS_ENTRY(ce_pshm, "PosixSharedMemory", pshm_methods);
 	ce_pshm.create_object = pshm_object_init;
 	//pshm_ce = zend_register_internal_class_ex(&ce_pshm, NULL);
 	pshm_ce = zend_register_internal_class(&ce_pshm);

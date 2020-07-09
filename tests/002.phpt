@@ -8,7 +8,7 @@ if (!extension_loaded('pshm')) {
 ?>
 --FILE--
 <?php
-$pshm = new PSHM(bin2hex(random_bytes(8)));
+$pshm = new PosixSharedMemory(bin2hex(random_bytes(8)));
 var_dump($pshm->unlink());
 ?>
 --EXPECT--

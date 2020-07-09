@@ -9,8 +9,8 @@ if (!extension_loaded('pshm')) {
 --FILE--
 <?php
 $name = bin2hex(random_bytes(8));
-$pshm1 = new PSHM($name,PSHM_CREAT | PSHM_RDWR);
-$pshm2 = new PSHM($name, PSHM_RDONLY);
+$pshm1 = new PosixSharedMemory($name,PSHM_CREAT | PSHM_RDWR);
+$pshm2 = new PosixSharedMemory($name, PSHM_RDONLY);
 var_dump( $pshm1->write("hello") );
 var_dump( $pshm2->read() );
 try { $pshm2->write("goodbye"); } catch (Exception $e) { var_dump($e->getMessage() );  }

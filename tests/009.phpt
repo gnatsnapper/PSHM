@@ -9,10 +9,10 @@ if (!extension_loaded('pshm')) {
 --FILE--
 <?php
 $name = bin2hex(random_bytes(8));
-$pshm1 = new PSHM($name, PSHM_CREAT | PSHM_RDWR);
+$pshm1 = new PosixSharedMemory($name, PSHM_CREAT | PSHM_RDWR);
 try {
 
-    $pshm2 = new PSHM($name,PSHM_EXCL | PSHM_CREAT | PSHM_RDWR);
+    $pshm2 = new PosixSharedMemory($name,PSHM_EXCL | PSHM_CREAT | PSHM_RDWR);
 
     }
     catch (Exception $e)
